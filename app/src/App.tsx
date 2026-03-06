@@ -1,59 +1,114 @@
 import { useState, useEffect } from 'react';
 import './App.css';
 
-// ❗ Укажи адрес своего бэкенда на Render
 const API_URL = 'https://my-crm-backend-dw59.onrender.com';
 
+// 1. Описываем интерфейсы для порядка в коде
+interface Service {
+  id: number;
+  name: string;
+  price: number;
+}
+
+interface TelegramUser {
+  id: number;
+  first_name: string;
+  last_name?: string;
+  username?: string;
+}
+
 function App() {
-  const [user, setUser] = useState<any>(null);
-  const [services, setServices] = useState([]);
+  const [user, setUser] = useState<TelegramUser | null>(null);
+  const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // 1. Получаем данные пользователя из Telegram WebApp
+    // Интеграция с Telegram
     const tg = (window as any).Telegram?.WebApp;
+    
     if (tg) {
-      tg.expand(); // Развернуть на весь экран
+      tg.ready();
+      tg.expand();
       setUser(tg.initDataUnsafe?.user);
     }
 
-    // 2. Загружаем услуги с твоего сервера
-    fetch(`${API_URL}/api/services`)
-      .then(res => res.json())
-      .then(data => {
+    // Загрузка данных с обработкой ошибок
+    const fetchServices = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/services`);
+        if (!res.ok) throw new Error('Ошибка сервера');
+        const data = await res.json();
         setServices(data.services || []);
+      } catch (err) {
+        setError('Не удалось загрузить список услуг 🛠️');
+        console.error("API Error:", err);
+      } finally {
         setLoading(false);
-      })
-      .catch(err => {
-        console.error("Ошибка загрузки API:", err);
-        setLoading(false);
-      });
+      }
+    };
+
+    fetchServices();
   }, []);
 
-  const handleBook = (service: any) => {
-    alert(`Запись на "${service.name}" принята! Мастер свяжется с вами.`);
+  // Функция для записи (теперь отправляет данные на бэкенд)
+  const handleBook = async (service: Service) => {
+    const tg = (window as any).Telegram?.WebApp;
+
+    try {
+      // Здесь мы можем отправить POST запрос на создание брони
+      const response = await fetch(`${API_URL}/api/bookings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          service_id: service.id,
+          user_id: user?.id,
+          user_name: user?.first_name
+        })
+      });
+
+      if (response.ok) {
+        tg?.showAlert(`Запись на "${service.name}" создана!`);
+        tg?.HapticFeedback.notificationOccurred('success');
+      }
+    } catch (e) {
+      alert("Ошибка при записи. Попробуйте позже.");
+    }
   };
 
   if (loading) return <div className="loader">Загрузка Plitka CRM...</div>;
+  if (error) return <div className="error-screen">{error}</div>;
 
   return (
     <div className="app">
       <header>
         <h1>Plitka CRM 🛠️</h1>
-        {user && <p>Привет, {user.first_name}!</p>}
+        {user && <p className="welcome">Мастер готов к работе, {user.first_name}!</p>}
       </header>
 
       <main>
-        <h2>Доступные услуги:</h2>
+        <div className="section-header">
+          <h2>Доступные услуги</h2>
+          <span className="badge">{services.length}</span>
+        </div>
+
         <div className="services-grid">
-          {services.length > 0 ? services.map((s: any) => (
-            <div key={s.id} className="card">
-              <h3>{s.name}</h3>
-              <p className="price">{s.price} ₽</p>
-              <button onClick={() => handleBook(s)}>Записаться</button>
+          {services.length > 0 ? (
+            services.map((s) => (
+              <div key={s.id} className="card">
+                <div className="card-info">
+                  <h3>{s.name}</h3>
+                  <p className="price">{s.price.toLocaleString()} ₽</p>
+                </div>
+                <button className="book-btn" onClick={() => handleBook(s)}>
+                  Записаться
+                </button>
+              </div>
+            ))
+          ) : (
+            <div className="empty-state">
+              <p>Услуг пока нет. Добавьте их в панели мастера.</p>
             </div>
-          )) : (
-            <p>Услуг пока нет. Добавьте их в панели мастера.</p>
           )}
         </div>
       </main>
